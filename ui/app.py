@@ -39,7 +39,66 @@ if uploaded_file is not None:
                         status_placeholder.info(f"Status: {status}")
                         if status == "completed":
                             st.success("Extraction and Indexing complete!")
-                            st.json(doc_data)
+
+                            # Extraction Display
+                            st.subheader("Extraction Results")
+                            col1, col2 = st.columns([2, 1])
+
+                            with col1:
+                                extracted_data = doc_data.get("extracted_data", {})
+                                if extracted_data:
+                                    # Create a table of fields, excluding derived_fields
+                                    display_fields = {k: v for k, v in extracted_data.items() if k != "derived_fields" and v is not None}
+                                    st.table(display_fields)
+                                else:
+                                    st.info("No structured data extracted.")
+
+                            with col2:
+                                derived = extracted_data.get("derived_fields", {})
+                                if derived:
+                                    st.markdown("### Key Metrics")
+
+                                    # Specific metrics based on available doc types
+                                    if "dti" in derived and derived["dti"] is not None:
+                                        dti = derived["dti"]
+                                        dti_color = "normal"
+                                        if dti > 0.43:
+                                            dti_color = "inverse" # Red
+                                        st.metric(label="Debt-to-Income (DTI)", value=f"{dti*100:.1f}%", delta="High Risk" if dti > 0.43 else "Normal", delta_color=dti_color)
+
+                                    if "effective_tax_rate_pct" in derived and derived["effective_tax_rate_pct"] is not None:
+                                        st.metric(label="Effective Tax Rate", value=f"{derived['effective_tax_rate_pct']}%")
+
+                                    if "monthly_income_proxy" in derived and derived["monthly_income_proxy"] is not None:
+                                        st.metric(label="Est. Monthly Income", value=f"${derived['monthly_income_proxy']:,.2f}")
+
+                                    if "total_deposits_snapshot" in derived and derived["total_deposits_snapshot"] is not None:
+                                        st.metric(label="Total Deposits", value=f"${derived['total_deposits_snapshot']:,.2f}")
+
+                                # Red flags panel
+                                st.markdown("### Risk Flags")
+                                flags = []
+                                doc_type = doc_data.get("document_type")
+                                if doc_type == "loan_application":
+                                    dti = derived.get("dti")
+                                    if dti and dti > 0.43:
+                                        flags.append("🚨 DTI exceeds 43% standard threshold")
+                                elif doc_type == "pay_stub":
+                                    tax_rate = derived.get("effective_tax_rate_pct")
+                                    if tax_rate and (tax_rate < 5 or tax_rate > 50):
+                                        flags.append("⚠️ Unusual effective tax rate")
+                                elif doc_type == "bank_statement":
+                                    withdrawals = extracted_data.get("total_withdrawals", 0)
+                                    deposits = extracted_data.get("total_deposits", 0)
+                                    if withdrawals and deposits and withdrawals > deposits:
+                                        flags.append("⚠️ Negative cash flow in period")
+
+                                if flags:
+                                    for flag in flags:
+                                        st.error(flag)
+                                else:
+                                    st.success("No immediate red flags detected.")
+
                             break
                         elif status == "failed":
                             st.error("Processing failed.")
@@ -52,20 +111,39 @@ st.divider()
 
 # RAG Query Section
 st.header("2. Ask Questions")
-query = st.text_input("Ask a question about the uploaded documents:")
+
+# Shortcut buttons
+st.markdown("**Quick Queries:**")
+col1, col2, col3 = st.columns(3)
+
+def set_query(q):
+    st.session_state["query_input"] = q
+
+with col1:
+    st.button("What is the applicant's name and SSN?", on_click=set_query, args=("What is the applicant's name and SSN?",))
+with col2:
+    st.button("Summarize the income and debt.", on_click=set_query, args=("Summarize the income and debt.",))
+with col3:
+    st.button("List all the deposits and withdrawals.", on_click=set_query, args=("List all the deposits and withdrawals.",))
+
+query_val = st.session_state.get("query_input", "")
+query = st.text_input("Ask a question about the uploaded documents:", value=query_val)
+
 if st.button("Ask"):
     if query:
+        st.session_state["query_input"] = query
         with st.spinner("Searching and synthesizing answer..."):
             response = httpx.post(f"{API_URL}/query", json={"query": query}, headers=HEADERS, timeout=60.0)
             if response.status_code == 200:
                 data = response.json().get("data", {})
                 st.markdown("### Answer")
-                st.write(data.get("answer"))
+                st.info(data.get("answer"))
 
                 with st.expander("View Sources"):
                     for i, source in enumerate(data.get("sources", [])):
                         st.markdown(f"**Source {i+1}** (Chunk {source.get('chunk_index')} from Document {source.get('document_id')})")
+                        st.caption(f"Distance: {source.get('distance'):.4f}")
                         st.text(source.get('content'))
-                        st.write(f"Distance: {source.get('distance'):.4f}")
+                        st.divider()
             else:
                 st.error(f"Failed to query. Status code: {response.status_code}")

@@ -47,6 +47,16 @@ class LoanApplicationExtraction(BaseModel):
     ending_balance: Optional[float] = Field(None, description="Closing balance at end of statement period.")
 
 
+class PayStubExtraction(BaseModel):
+    employee_name: Optional[str] = Field(None, description="Name of the employee.")
+    employer_name: Optional[str] = Field(None, description="Name of the employer or company.")
+    pay_period_start: Optional[str] = Field(None, description="Start date of the pay period.")
+    pay_period_end: Optional[str] = Field(None, description="End date of the pay period.")
+    gross_pay: Optional[float] = Field(None, description="Gross pay for the current period.")
+    net_pay: Optional[float] = Field(None, description="Net pay (take-home) for the current period.")
+    ytd_gross: Optional[float] = Field(None, description="Year-to-date gross pay.")
+    taxes_withheld: Optional[float] = Field(None, description="Total taxes withheld for the current period.")
+
 class ExtractRequest(BaseModel):
     document_id: str
 
@@ -231,6 +241,79 @@ Document text:
 
                 validated["derived_fields"] = {
                     "dti": dti if dti is not None else validated.get("calculated_dti")
+                }
+
+                log.info("extraction successful")
+
+                # trigger chunking and embedding after extraction
+                await _embed_and_index_chunks(document_id, raw_text, log)
+
+                await session.execute(
+                    text(
+                        "INSERT INTO extractions (document_id, extracted_data, model_version) "
+                        "VALUES (:document_id, :extracted_data, :model_version)"
+                    ),
+                    {
+                        "document_id": document_id,
+                        "extracted_data": json.dumps(validated),
+                        "model_version": EXTRACTION_MODEL,
+                    },
+                )
+                await session.execute(
+                    text("UPDATE documents SET status = 'completed' WHERE id = :id"),
+                    {"id": document_id},
+                )
+                await session.commit()
+
+            elif doc_type == "pay_stub":
+                prompt = f"""Extract the requested fields from the following pay stub text.
+Return ONLY a JSON object matching this schema — no explanation, no markdown:
+{{
+    "employee_name": "string or null",
+    "employer_name": "string or null",
+    "pay_period_start": "string or null",
+    "pay_period_end": "string or null",
+    "gross_pay": number or null,
+    "net_pay": number or null,
+    "ytd_gross": number or null,
+    "taxes_withheld": number or null
+}}
+
+Document text:
+<document>
+{raw_text}
+</document>"""
+
+                log.info("calling claude api for pay stub", model=EXTRACTION_MODEL)
+                response = await anthropic_client.messages.create(
+                    model=EXTRACTION_MODEL,
+                    max_tokens=1000,
+                    temperature=0,
+                    system="You are an expert at extracting structured data from financial documents. Return only JSON.",
+                    messages=[{"role": "user", "content": prompt}],
+                )
+
+                if not response.content:
+                    raise ValueError("empty response from Claude API")
+
+                extracted_data = _parse_claude_json(response.content[0].text)
+                validated = PayStubExtraction(**extracted_data).model_dump()
+
+                # Derived fields
+                gross = validated.get("gross_pay")
+                taxes = validated.get("taxes_withheld")
+                effective_tax_rate = None
+                if gross and taxes and gross > 0:
+                    effective_tax_rate = round((taxes / gross) * 100, 2)
+
+                # Monthly income proxy
+                monthly_income_proxy = None
+                if gross:
+                    monthly_income_proxy = gross * 2 # assuming bi-weekly, but simplified for demo
+
+                validated["derived_fields"] = {
+                    "effective_tax_rate_pct": effective_tax_rate,
+                    "monthly_income_proxy": monthly_income_proxy
                 }
 
                 log.info("extraction successful")

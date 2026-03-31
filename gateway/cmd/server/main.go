@@ -9,8 +9,10 @@ import (
 	"os"
 
 	"github.com/findociq/gateway/internal/handler"
+	apimw "github.com/findociq/gateway/internal/middleware"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
+	"github.com/go-chi/cors"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -51,6 +53,12 @@ func main() {
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Logger)
 	r.Use(middleware.Recoverer)
+	r.Use(cors.Handler(cors.Options{
+		AllowedOrigins: []string{"http://localhost:8501"},
+		AllowedMethods: []string{"GET", "POST", "OPTIONS"},
+		AllowedHeaders: []string{"Accept", "Authorization", "Content-Type", "X-Request-ID"},
+	}))
+	r.Use(apimw.APIKeyAuth)
 
 	r.Get("/healthz", handler.HealthCheck)
 	r.Get("/documents/{id}", handler.GetDocument(pool))

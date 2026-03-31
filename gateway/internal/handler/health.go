@@ -1,12 +1,11 @@
 package handler
 
 import (
-	"encoding/json"
 	"net/http"
+
+	"github.com/findociq/gateway/internal/types"
 )
 
 func HealthCheck(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+	types.WriteJSON(w, r, http.StatusOK, map[string]string{"status": "ok"})
 }

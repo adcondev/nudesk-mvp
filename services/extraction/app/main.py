@@ -1,146 +1,152 @@
-import os
 import json
-import asyncio
+import os
+import re
+from datetime import datetime, timezone
 from typing import Optional
+
+import structlog
+from anthropic import AsyncAnthropic
+from dotenv import load_dotenv
+from fastapi import FastAPI, BackgroundTasks
 from pydantic import BaseModel, Field
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy import text
-from anthropic import AsyncAnthropic
-import structlog
-from dotenv import load_dotenv
 
 load_dotenv()
 logger = structlog.get_logger()
 
-# Database setup
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://findociq:findociq@db:5432/findociq")
 engine = create_async_engine(DATABASE_URL)
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-# Anthropic API setup
 anthropic_client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+EXTRACTION_MODEL = os.getenv("EXTRACTION_MODEL", "claude-opus-4-6")
 
 app = FastAPI(title="FinDocIQ Extraction Service")
 
-# Pydantic models for extraction
+
 class BankStatementExtraction(BaseModel):
-    account_number: Optional[str] = Field(description="The account number, typically ending in a few digits.")
-    account_holder_name: Optional[str] = Field(description="Name of the person or entity holding the account.")
-    statement_date: Optional[str] = Field(description="The date the statement was issued.")
-    total_deposits: Optional[float] = Field(description="Total amount of deposits or credits.")
-    total_withdrawals: Optional[float] = Field(description="Total amount of withdrawals or debits.")
-    ending_balance: Optional[float] = Field(description="The final balance at the end of the statement period.")
+    account_number: Optional[str] = Field(None, description="Account number from the statement.")
+    account_holder_name: Optional[str] = Field(None, description="Name on the account.")
+    statement_date: Optional[str] = Field(None, description="Statement issue date.")
+    total_deposits: Optional[float] = Field(None, description="Total deposits/credits for the period.")
+    total_withdrawals: Optional[float] = Field(None, description="Total withdrawals/debits for the period.")
+    ending_balance: Optional[float] = Field(None, description="Closing balance at end of statement period.")
+
 
 class ExtractRequest(BaseModel):
     document_id: str
 
-async def process_extraction(document_id: str):
-    logger.info("Starting extraction", document_id=document_id)
+
+def _parse_claude_json(text: str) -> dict:
+    """Extract JSON from Claude response, stripping markdown fences if present."""
+    raw = text.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
+    return json.loads(raw)
+
+
+def _envelope(data=None, error=None, request_id: str = "") -> dict:
+    return {
+        "data": data,
+        "error": error,
+        "meta": {"request_id": request_id, "timestamp": datetime.now(timezone.utc).isoformat()},
+    }
+
+
+async def process_extraction(document_id: str) -> None:
+    log = logger.bind(document_id=document_id)
+    log.info("starting extraction")
     try:
         async with AsyncSessionLocal() as session:
-            # Fetch raw text
             result = await session.execute(
                 text("SELECT raw_text, document_type FROM documents WHERE id = :id"),
-                {"id": document_id}
+                {"id": document_id},
             )
             row = result.fetchone()
             if not row or not row.raw_text:
-                logger.error("Document or raw text not found", document_id=document_id)
+                log.error("document or raw text not found")
                 return
 
             raw_text, doc_type = row
 
             if doc_type == "bank_statement":
-                # Prompt Claude
-                prompt = f"""
-                You are a data extraction assistant. Extract the requested fields from the following bank statement text.
-                Return ONLY a JSON object matching this schema:
-                {{
-                    "account_number": "string or null",
-                    "account_holder_name": "string or null",
-                    "statement_date": "string or null",
-                    "total_deposits": number or null,
-                    "total_withdrawals": number or null,
-                    "ending_balance": number or null
-                }}
+                prompt = f"""Extract the requested fields from the following bank statement text.
+Return ONLY a JSON object matching this schema — no explanation, no markdown:
+{{
+    "account_number": "string or null",
+    "account_holder_name": "string or null",
+    "statement_date": "string or null",
+    "total_deposits": number or null,
+    "total_withdrawals": number or null,
+    "ending_balance": number or null
+}}
 
-                Here is the document text:
-                <document>
-                {raw_text}
-                </document>
-                """
+Document text:
+<document>
+{raw_text}
+</document>"""
 
-                logger.info("Calling Claude API", document_id=document_id)
+                log.info("calling claude api", model=EXTRACTION_MODEL)
                 response = await anthropic_client.messages.create(
-                    model="claude-3-haiku-20240307",
+                    model=EXTRACTION_MODEL,
                     max_tokens=1000,
                     temperature=0,
                     system="You are an expert at extracting structured data from financial documents. Return only JSON.",
-                    messages=[
-                        {"role": "user", "content": prompt}
-                    ]
+                    messages=[{"role": "user", "content": prompt}],
                 )
 
-                # Parse output
-                extracted_json_str = response.content[0].text
-                # Find JSON block if Claude included markdown
-                if "```json" in extracted_json_str:
-                    extracted_json_str = extracted_json_str.split("```json")[1].split("```")[0].strip()
-                elif "```" in extracted_json_str:
-                    extracted_json_str = extracted_json_str.split("```")[1].split("```")[0].strip()
+                if not response.content:
+                    raise ValueError("empty response from Claude API")
 
-                extracted_data = json.loads(extracted_json_str)
-                validated_data = BankStatementExtraction(**extracted_data).model_dump()
+                extracted_data = _parse_claude_json(response.content[0].text)
+                validated = BankStatementExtraction(**extracted_data).model_dump()
 
-                # Derived fields
-                deposits = validated_data.get('total_deposits') or 0.0
-                withdrawals = validated_data.get('total_withdrawals') or 0.0
-                monthly_avg_income = deposits  # Simplification for demo
-                # Assume a fixed debt for demo DTI calculation if withdrawals aren't just expenses
-                # Or simplify DTI = withdrawals / deposits if deposits > 0
-                dti = round(withdrawals / deposits, 2) if deposits > 0 else 0.0
-
-                validated_data["derived_fields"] = {
-                    "monthly_avg_income": monthly_avg_income,
-                    "dti": dti
+                # Derived fields — only compute what the data actually supports.
+                # A single bank statement snapshot does not provide enough data for a true
+                # DTI ratio (which requires verified monthly debt obligations). We expose
+                # total_deposits as the best single-statement income proxy and leave dti
+                # null until multi-statement or loan application data is available.
+                deposits = validated.get("total_deposits")
+                validated["derived_fields"] = {
+                    "total_deposits_snapshot": deposits,
+                    "dti": None,  # requires verified debt payments — not available from statement alone
                 }
 
-                logger.info("Extraction successful", document_id=document_id)
+                log.info("extraction successful")
 
-                # Update DB
                 await session.execute(
-                    text("""
-                        INSERT INTO extractions (document_id, extracted_data, model_version)
-                        VALUES (:document_id, :extracted_data, :model_version)
-                    """),
+                    text(
+                        "INSERT INTO extractions (document_id, extracted_data, model_version) "
+                        "VALUES (:document_id, :extracted_data, :model_version)"
+                    ),
                     {
                         "document_id": document_id,
-                        "extracted_data": json.dumps(validated_data),
-                        "model_version": "claude-3-haiku-20240307"
-                    }
+                        "extracted_data": json.dumps(validated),
+                        "model_version": EXTRACTION_MODEL,
+                    },
                 )
-
                 await session.execute(
                     text("UPDATE documents SET status = 'completed' WHERE id = :id"),
-                    {"id": document_id}
+                    {"id": document_id},
                 )
                 await session.commit()
+
             else:
-                logger.warning("Unsupported document type for extraction", document_id=document_id, doc_type=doc_type)
+                log.warning("unsupported document type — skipping extraction", doc_type=doc_type)
                 await session.execute(
                     text("UPDATE documents SET status = 'completed' WHERE id = :id"),
-                    {"id": document_id}
+                    {"id": document_id},
                 )
                 await session.commit()
 
     except Exception as e:
-        logger.error("Error during extraction", document_id=document_id, error=str(e))
+        log.error("extraction failed", error=str(e))
         async with AsyncSessionLocal() as session:
             await session.execute(
                 text("UPDATE documents SET status = 'failed' WHERE id = :id"),
-                {"id": document_id}
+                {"id": document_id},
             )
             await session.commit()
 
@@ -148,8 +154,9 @@ async def process_extraction(document_id: str):
 @app.post("/extract")
 async def extract_data(request: ExtractRequest, background_tasks: BackgroundTasks):
     background_tasks.add_task(process_extraction, request.document_id)
-    return {"status": "extraction_started", "document_id": request.document_id}
+    return _envelope(data={"status": "extraction_started", "document_id": request.document_id})
+
 
 @app.get("/healthz")
 async def health_check():
-    return {"status": "ok"}
+    return _envelope(data={"status": "ok"})

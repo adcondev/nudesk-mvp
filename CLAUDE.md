@@ -169,3 +169,11 @@ make lint          # go vet + ruff
 - PaddleOCR cold start: 15-30s first call, ~3-8s/page after
 - Synchronous processing (no job queue)
 - Polling-based status updates (no WebSockets)
+
+## Claude Code setup
+
+The `.claude/` directory structures the AI developer workflow:
+- **`commands/`** — user-invoked slash commands: `/project:new-doc-type`, `/project:review`, `/project:test-pipeline`
+- **`rules/`** — auto-loaded every session: code style, testing standards, API conventions
+- **`agents/`** — specialized personas: `code-reviewer` for architecture/quality gates
+- **`settings.json`** — bash permissions allowlist + Postgres MCP server for live schema access

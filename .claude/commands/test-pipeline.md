@@ -12,7 +12,7 @@ curl -sf localhost:8003/healthz   # rag
 If any service is down, report which ones failed and stop.
  
 ### Step 2 — Upload a test document
-Find a PDF in `tests/fixtures/`. Upload it:
+Find a PDF in `tests/fixtures/`. If `$ARGUMENTS` specifies a document type (e.g., `bank_statement`), use a matching fixture; otherwise use any available PDF. Upload it:
 ```
 curl -X POST localhost:8080/api/v1/documents -F "file=@<fixture_path>"
 ```

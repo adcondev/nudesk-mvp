@@ -118,6 +118,7 @@ async def _embed_and_index_chunks(document_id: str, raw_text: str, log):
             log.info("indexed chunks successfully", chunk_count=len(paragraphs))
     except Exception as e:
         log.error("failed to insert chunks to db", error=str(e))
+        log.warning("chunk indexing failed — document will be marked completed but RAG queries may return no context")
 
 async def process_extraction(document_id: str) -> None:
     log = logger.bind(document_id=document_id)

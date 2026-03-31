@@ -14,7 +14,11 @@
       "Bash(pip *)",
       "Bash(uv *)",
       "Bash(psql *)",
-      "Bash(cd *)"
+      "Bash(cd *)",
+      "Bash(git *)",
+      "Bash(ruff *)",
+      "Bash(mkdir *)",
+      "Bash(ls *)"
     ]
   },
   "mcpServers": {

@@ -52,6 +52,11 @@ func main() {
 	}
 	ragProxy := httputil.NewSingleHostReverseProxy(parsedRagURL)
 
+	extractionURL := os.Getenv("EXTRACTION_URL")
+	if extractionURL == "" {
+		extractionURL = "http://extraction:8002"
+	}
+
 	pool, err := pgxpool.New(context.Background(), dbURL)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Unable to connect to database")
@@ -70,7 +75,7 @@ func main() {
 	}))
 	r.Use(apimw.APIKeyAuth)
 
-	r.Get("/healthz", handler.HealthCheck(pool, ingestionURL, ragURL))
+	r.Get("/healthz", handler.HealthCheck(pool, ingestionURL, ragURL, extractionURL))
 	r.Get("/documents", handler.ListDocuments(pool))
 	r.Get("/documents/{id}", handler.GetDocument(pool))
 	r.Post("/documents", func(w http.ResponseWriter, r *http.Request) {

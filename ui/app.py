@@ -66,6 +66,11 @@ if uploaded_file is not None:
                                             dti_color = "inverse" # Red
                                         st.metric(label="Debt-to-Income (DTI)", value=f"{dti*100:.1f}%", delta="High Risk" if dti > 0.43 else "Normal", delta_color=dti_color)
 
+                                    if "ltv" in derived and derived["ltv"] is not None:
+                                        ltv = derived["ltv"]
+                                        ltv_color = "inverse" if ltv > 0.80 else "normal"
+                                        st.metric(label="Loan-to-Value (LTV)", value=f"{ltv*100:.1f}%", delta="High Risk" if ltv > 0.80 else "Normal", delta_color=ltv_color)
+
                                     if "effective_tax_rate_pct" in derived and derived["effective_tax_rate_pct"] is not None:
                                         st.metric(label="Effective Tax Rate", value=f"{derived['effective_tax_rate_pct']}%")
 
@@ -83,6 +88,9 @@ if uploaded_file is not None:
                                     dti = derived.get("dti")
                                     if dti and dti > 0.43:
                                         flags.append("🚨 DTI exceeds 43% standard threshold")
+                                    ltv = derived.get("ltv")
+                                    if ltv and ltv > 0.80:
+                                        flags.append("⚠️ LTV exceeds 80% — PMI likely required")
                                 elif doc_type == "pay_stub":
                                     tax_rate = derived.get("effective_tax_rate_pct")
                                     if tax_rate and (tax_rate < 5 or tax_rate > 50):

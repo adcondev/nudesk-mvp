@@ -70,9 +70,13 @@ func main() {
 	}))
 	r.Use(apimw.APIKeyAuth)
 
-	r.Get("/healthz", handler.HealthCheck)
+	r.Get("/healthz", handler.HealthCheck(pool, ingestionURL, ragURL))
+	r.Get("/documents", handler.ListDocuments(pool))
 	r.Get("/documents/{id}", handler.GetDocument(pool))
-	r.Post("/ingest", func(w http.ResponseWriter, r *http.Request) {
+	r.Post("/documents", func(w http.ResponseWriter, r *http.Request) {
+		// Change the path to match the backend expectation if needed
+		// The ingestion service expects POST /ingest
+		r.URL.Path = "/ingest"
 		ingestionProxy.ServeHTTP(w, r)
 	})
 	r.Post("/query", func(w http.ResponseWriter, r *http.Request) {

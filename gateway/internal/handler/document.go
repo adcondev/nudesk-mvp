@@ -67,3 +67,60 @@ func GetDocument(pool *pgxpool.Pool) http.HandlerFunc {
 		types.WriteJSON(w, r, http.StatusOK, resp)
 	}
 }
+
+func ListDocuments(pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		query := `
+			SELECT
+				d.id, d.filename, d.status, d.document_type, d.page_count, d.uploaded_at
+			FROM documents d
+			ORDER BY d.uploaded_at DESC
+			LIMIT 50
+		`
+
+		rows, err := pool.Query(ctx, query)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to query documents")
+			types.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to list documents")
+			return
+		}
+		defer rows.Close()
+
+		var documents []DocumentResponse
+		for rows.Next() {
+			var resp DocumentResponse
+			var docType *string
+			var pageCount *int
+
+			err := rows.Scan(
+				&resp.ID, &resp.Filename, &resp.Status, &docType, &pageCount, &resp.UploadedAt,
+			)
+			if err != nil {
+				log.Error().Err(err).Msg("failed to scan document row")
+				continue
+			}
+
+			if docType != nil {
+				resp.DocumentType = *docType
+			}
+			if pageCount != nil {
+				resp.PageCount = *pageCount
+			}
+			documents = append(documents, resp)
+		}
+
+		if err := rows.Err(); err != nil {
+			log.Error().Err(err).Msg("rows error when listing documents")
+			types.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to list documents")
+			return
+		}
+
+		if documents == nil {
+			documents = []DocumentResponse{}
+		}
+
+		types.WriteJSON(w, r, http.StatusOK, documents)
+	}
+}

@@ -1,4 +1,5 @@
 from fastapi import FastAPI
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 import structlog
 import os
@@ -55,7 +56,7 @@ async def query_rag(request: QueryRequest):
         query_embedding = response.data[0].embedding
     except Exception as e:
         log.error("failed to embed query", error=str(e))
-        return _envelope(error="Failed to process query")
+        return JSONResponse(status_code=500, content=_envelope(error={"code": "embed_failed", "message": "Failed to embed query"}))
 
     # retrieve context
     context_chunks = []
@@ -83,7 +84,7 @@ async def query_rag(request: QueryRequest):
                 })
     except Exception as e:
         log.error("failed to retrieve context", error=str(e))
-        return _envelope(error="Failed to retrieve context")
+        return JSONResponse(status_code=500, content=_envelope(error={"code": "retrieval_failed", "message": "Failed to retrieve context"}))
 
     if not context_chunks:
         return _envelope(data={"answer": "No relevant context found.", "sources": []})
@@ -111,6 +112,6 @@ Question: {request.query}
         answer = claude_res.content[0].text
     except Exception as e:
         log.error("failed to synthesize answer", error=str(e))
-        return _envelope(error="Failed to generate answer")
+        return JSONResponse(status_code=500, content=_envelope(error={"code": "synthesis_failed", "message": "Failed to generate answer"}))
 
     return _envelope(data={"answer": answer, "sources": context_chunks})

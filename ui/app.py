@@ -19,8 +19,15 @@ uploaded_file = st.file_uploader("Upload a financial document (PDF)", type=["pdf
 if uploaded_file is not None:
     if st.button("Upload & Process"):
         with st.spinner("Uploading and processing..."):
-            files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")}
-            response = httpx.post(f"{API_URL}/ingest", files=files, headers=HEADERS, timeout=60.0)
+            try:
+                files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")}
+                response = httpx.post(f"{API_URL}/ingest", files=files, headers=HEADERS, timeout=60.0)
+            except (httpx.ConnectError, httpx.TimeoutException):
+                st.error("Cannot reach the API. Is the stack running? (`docker-compose up`)")
+                st.stop()
+            except httpx.HTTPError as e:
+                st.error(f"Unexpected network error: {e}")
+                st.stop()
 
             if response.status_code == 200:
                 data = response.json().get("data", {})
@@ -32,7 +39,11 @@ if uploaded_file is not None:
                 status_placeholder = st.empty()
                 max_retries = 30
                 for _ in range(max_retries):
-                    res = httpx.get(f"{API_URL}/documents/{doc_id}", headers=HEADERS, timeout=60.0)
+                    try:
+                        res = httpx.get(f"{API_URL}/documents/{doc_id}", headers=HEADERS, timeout=10.0)
+                    except (httpx.ConnectError, httpx.TimeoutException):
+                        st.error("Lost connection to the API while polling. Please refresh.")
+                        break
                     if res.status_code == 200:
                         doc_data = res.json().get("data", {})
                         status = doc_data.get("status")
@@ -101,11 +112,19 @@ if uploaded_file is not None:
 
                             break
                         elif status == "failed":
-                            st.error("Processing failed.")
+                            st.error(
+                                "Processing failed. The file may be unsupported, corrupted, or contain "
+                                "unreadable text. Try uploading a cleaner PDF."
+                            )
                             break
                     time.sleep(2)
+                else:
+                    st.warning(
+                        "Processing timed out after 60 seconds. The document may still be processing — "
+                        "refresh the page to check its status."
+                    )
             else:
-                st.error("Failed to upload document")
+                st.error(f"Failed to upload document (HTTP {response.status_code}).")
 
 st.divider()
 
@@ -130,10 +149,20 @@ query_val = st.session_state.get("query_input", "")
 query = st.text_input("Ask a question about the uploaded documents:", value=query_val)
 
 if st.button("Ask"):
-    if query:
+    if not query.strip():
+        st.info("Enter a question above before clicking Ask.")
+    else:
         st.session_state["query_input"] = query
         with st.spinner("Searching and synthesizing answer..."):
-            response = httpx.post(f"{API_URL}/query", json={"query": query}, headers=HEADERS, timeout=60.0)
+            try:
+                response = httpx.post(f"{API_URL}/query", json={"query": query}, headers=HEADERS, timeout=60.0)
+            except (httpx.ConnectError, httpx.TimeoutException):
+                st.error("Cannot reach the API. Is the stack running? (`docker-compose up`)")
+                st.stop()
+            except httpx.HTTPError as e:
+                st.error(f"Unexpected network error: {e}")
+                st.stop()
+
             if response.status_code == 200:
                 data = response.json().get("data", {})
                 st.markdown("### Answer")
@@ -146,4 +175,6 @@ if st.button("Ask"):
                         st.text(source.get('content'))
                         st.divider()
             else:
-                st.error(f"Failed to query. Status code: {response.status_code}")
+                error_body = response.json().get("error", {})
+                message = error_body.get("message", "Unknown error") if isinstance(error_body, dict) else str(error_body)
+                st.error(f"Query failed: {message}")

@@ -3,11 +3,13 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/findociq/gateway/internal/types"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog/log"
 )
@@ -49,8 +51,12 @@ func GetDocument(pool *pgxpool.Pool) http.HandlerFunc {
 			&resp.ID, &resp.Filename, &resp.Status, &docType, &pageCount, &resp.UploadedAt, &extractedData,
 		)
 		if err != nil {
-			log.Error().Err(err).Str("id", id).Msg("failed to query document")
-			types.WriteError(w, http.StatusNotFound, "not_found", "document not found")
+			if errors.Is(err, pgx.ErrNoRows) {
+				types.WriteError(w, http.StatusNotFound, "not_found", "document not found")
+			} else {
+				log.Error().Err(err).Str("id", id).Msg("failed to query document")
+				types.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to retrieve document")
+			}
 			return
 		}
 

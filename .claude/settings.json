@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker-compose *)",
+      "Bash(docker *)",
+      "Bash(make *)",
+      "Bash(make)",
+      "Bash(go *)",
+      "Bash(python *)",
+      "Bash(pytest *)",
+      "Bash(curl *)",
+      "Bash(alembic *)",
+      "Bash(sqlc *)",
+      "Bash(pip *)",
+      "Bash(uv *)",
+      "Bash(psql *)",
+      "Bash(cd *)"
+    ]
+  },
+  "mcpServers": {
+    "postgres": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@modelcontextprotocol/server-postgres",
+        "postgresql://findociq:findociq@localhost:5432/findociq"
+      ]
+    }
+  }
+}

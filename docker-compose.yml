@@ -1,6 +1,6 @@
 services:
   db:
-    image: ankane/pgvector:pg16
+    image: ankane/pgvector:latest
     environment:
       POSTGRES_USER: findociq
       POSTGRES_PASSWORD: findociq

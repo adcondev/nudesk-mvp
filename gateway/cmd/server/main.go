@@ -42,6 +42,16 @@ func main() {
 	}
 	ingestionProxy := httputil.NewSingleHostReverseProxy(parsedIngestionURL)
 
+	ragURL := os.Getenv("RAG_URL")
+	if ragURL == "" {
+		ragURL = "http://rag:8003"
+	}
+	parsedRagURL, err := url.Parse(ragURL)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Invalid RAG_URL")
+	}
+	ragProxy := httputil.NewSingleHostReverseProxy(parsedRagURL)
+
 	pool, err := pgxpool.New(context.Background(), dbURL)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Unable to connect to database")
@@ -64,6 +74,9 @@ func main() {
 	r.Get("/documents/{id}", handler.GetDocument(pool))
 	r.Post("/ingest", func(w http.ResponseWriter, r *http.Request) {
 		ingestionProxy.ServeHTTP(w, r)
+	})
+	r.Post("/query", func(w http.ResponseWriter, r *http.Request) {
+		ragProxy.ServeHTTP(w, r)
 	})
 
 	log.Info().Msgf("Gateway starting on port %s", port)

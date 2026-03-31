@@ -6,12 +6,14 @@ from typing import Optional
 
 import structlog
 from anthropic import AsyncAnthropic
+from openai import AsyncOpenAI
 from dotenv import load_dotenv
 from fastapi import FastAPI, BackgroundTasks
 from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
+from pgvector.sqlalchemy import Vector
 
 load_dotenv()
 logger = structlog.get_logger()
@@ -22,6 +24,8 @@ AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=F
 
 anthropic_client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 EXTRACTION_MODEL = os.getenv("EXTRACTION_MODEL", "claude-opus-4-6")
+openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
 app = FastAPI(title="FinDocIQ Extraction Service")
 
@@ -29,6 +33,14 @@ app = FastAPI(title="FinDocIQ Extraction Service")
 class BankStatementExtraction(BaseModel):
     account_number: Optional[str] = Field(None, description="Account number from the statement.")
     account_holder_name: Optional[str] = Field(None, description="Name on the account.")
+
+class LoanApplicationExtraction(BaseModel):
+    applicant_name: Optional[str] = Field(None, description="Name of the applicant.")
+    social_security_number: Optional[str] = Field(None, description="SSN of the applicant.")
+    loan_amount: Optional[float] = Field(None, description="Requested loan amount.")
+    monthly_gross_income: Optional[float] = Field(None, description="Stated monthly gross income.")
+    monthly_debt_payments: Optional[float] = Field(None, description="Stated total monthly debt payments.")
+    calculated_dti: Optional[float] = Field(None, description="Calculated Debt-to-Income ratio.")
     statement_date: Optional[str] = Field(None, description="Statement issue date.")
     total_deposits: Optional[float] = Field(None, description="Total deposits/credits for the period.")
     total_withdrawals: Optional[float] = Field(None, description="Total withdrawals/debits for the period.")
@@ -54,6 +66,48 @@ def _envelope(data=None, error=None, request_id: str = "") -> dict:
         "meta": {"request_id": request_id, "timestamp": datetime.now(timezone.utc).isoformat()},
     }
 
+
+async def _embed_and_index_chunks(document_id: str, raw_text: str, log):
+    log.info("starting chunking and embedding")
+    # Simple paragraph chunking
+    paragraphs = [p.strip() for p in raw_text.split("\n\n") if p.strip()]
+
+    if not paragraphs:
+        log.warning("no paragraphs found to chunk")
+        return
+
+    # Call OpenAI for embeddings
+    try:
+        response = await openai_client.embeddings.create(
+            input=paragraphs,
+            model=EMBEDDING_MODEL
+        )
+    except Exception as e:
+        log.error("embedding failed", error=str(e))
+        return
+
+    # Insert chunks to database
+    try:
+        async with AsyncSessionLocal() as session:
+            for i, data in enumerate(response.data):
+                embedding = data.embedding
+                content = paragraphs[i]
+                await session.execute(
+                    text(
+                        "INSERT INTO chunks (document_id, chunk_index, content, embedding) "
+                        "VALUES (:document_id, :chunk_index, :content, :embedding::vector)"
+                    ),
+                    {
+                        "document_id": document_id,
+                        "chunk_index": i,
+                        "content": content,
+                        "embedding": str(embedding)
+                    }
+                )
+            await session.commit()
+            log.info("indexed chunks successfully", chunk_count=len(paragraphs))
+    except Exception as e:
+        log.error("failed to insert chunks to db", error=str(e))
 
 async def process_extraction(document_id: str) -> None:
     log = logger.bind(document_id=document_id)
@@ -115,6 +169,74 @@ Document text:
                 }
 
                 log.info("extraction successful")
+
+                # trigger chunking and embedding after extraction
+                await _embed_and_index_chunks(document_id, raw_text, log)
+
+                await session.execute(
+                    text(
+                        "INSERT INTO extractions (document_id, extracted_data, model_version) "
+                        "VALUES (:document_id, :extracted_data, :model_version)"
+                    ),
+                    {
+                        "document_id": document_id,
+                        "extracted_data": json.dumps(validated),
+                        "model_version": EXTRACTION_MODEL,
+                    },
+                )
+                await session.execute(
+                    text("UPDATE documents SET status = 'completed' WHERE id = :id"),
+                    {"id": document_id},
+                )
+                await session.commit()
+
+            elif doc_type == "loan_application":
+                prompt = f"""Extract the requested fields from the following loan application text.
+Return ONLY a JSON object matching this schema — no explanation, no markdown:
+{{
+    "applicant_name": "string or null",
+    "social_security_number": "string or null",
+    "loan_amount": number or null,
+    "monthly_gross_income": number or null,
+    "monthly_debt_payments": number or null,
+    "calculated_dti": number or null
+}}
+
+Document text:
+<document>
+{raw_text}
+</document>"""
+
+                log.info("calling claude api for loan app", model=EXTRACTION_MODEL)
+                response = await anthropic_client.messages.create(
+                    model=EXTRACTION_MODEL,
+                    max_tokens=1000,
+                    temperature=0,
+                    system="You are an expert at extracting structured data from financial documents. Return only JSON.",
+                    messages=[{"role": "user", "content": prompt}],
+                )
+
+                if not response.content:
+                    raise ValueError("empty response from Claude API")
+
+                extracted_data = _parse_claude_json(response.content[0].text)
+                validated = LoanApplicationExtraction(**extracted_data).model_dump()
+
+                # Derived fields
+                income = validated.get("monthly_gross_income")
+                debt = validated.get("monthly_debt_payments")
+                dti = None
+                if income and debt and income > 0:
+                    dti = debt / income
+
+                validated["derived_fields"] = {
+                    "dti": dti if dti is not None else validated.get("calculated_dti")
+                }
+
+                log.info("extraction successful")
+
+                # trigger chunking and embedding after extraction
+                await _embed_and_index_chunks(document_id, raw_text, log)
 
                 await session.execute(
                     text(

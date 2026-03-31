@@ -10,13 +10,14 @@ import (
 )
 
 // HealthCheck returns a handler that checks the database and downstream services.
-func HealthCheck(pool *pgxpool.Pool, ingestionURL, ragURL string) http.HandlerFunc {
+func HealthCheck(pool *pgxpool.Pool, ingestionURL, ragURL, extractionURL string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		status := map[string]string{
-			"status":    "ok",
-			"db":        "down",
-			"ingestion": "down",
-			"rag":       "down",
+			"status":     "ok",
+			"db":         "down",
+			"ingestion":  "down",
+			"extraction": "down",
+			"rag":        "down",
 		}
 
 		overallStatus := http.StatusOK
@@ -33,6 +34,13 @@ func HealthCheck(pool *pgxpool.Pool, ingestionURL, ragURL string) http.HandlerFu
 		// Check Ingestion
 		if checkServiceHealth(r.Context(), ingestionURL+"/healthz") {
 			status["ingestion"] = "up"
+		} else {
+			overallStatus = http.StatusServiceUnavailable
+		}
+
+		// Check Extraction
+		if checkServiceHealth(r.Context(), extractionURL+"/healthz") {
+			status["extraction"] = "up"
 		} else {
 			overallStatus = http.StatusServiceUnavailable
 		}

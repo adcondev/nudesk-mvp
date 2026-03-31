@@ -38,13 +38,13 @@ class LoanApplicationExtraction(BaseModel):
     applicant_name: Optional[str] = Field(None, description="Name of the applicant.")
     social_security_number: Optional[str] = Field(None, description="SSN of the applicant.")
     loan_amount: Optional[float] = Field(None, description="Requested loan amount.")
+    property_value: Optional[float] = Field(None, description="Appraised or stated property value.")
+    loan_purpose: Optional[str] = Field(None, description="Purpose of the loan (e.g. purchase, refinance).")
+    employment_status: Optional[str] = Field(None, description="Employment status of the applicant.")
+    credit_score: Optional[int] = Field(None, description="Applicant credit score.")
     monthly_gross_income: Optional[float] = Field(None, description="Stated monthly gross income.")
     monthly_debt_payments: Optional[float] = Field(None, description="Stated total monthly debt payments.")
     calculated_dti: Optional[float] = Field(None, description="Calculated Debt-to-Income ratio.")
-    statement_date: Optional[str] = Field(None, description="Statement issue date.")
-    total_deposits: Optional[float] = Field(None, description="Total deposits/credits for the period.")
-    total_withdrawals: Optional[float] = Field(None, description="Total withdrawals/debits for the period.")
-    ending_balance: Optional[float] = Field(None, description="Closing balance at end of statement period.")
 
 
 class PayStubExtraction(BaseModel):
@@ -207,6 +207,10 @@ Return ONLY a JSON object matching this schema — no explanation, no markdown:
     "applicant_name": "string or null",
     "social_security_number": "string or null",
     "loan_amount": number or null,
+    "property_value": number or null,
+    "loan_purpose": "string or null",
+    "employment_status": "string or null",
+    "credit_score": integer or null,
     "monthly_gross_income": number or null,
     "monthly_debt_payments": number or null,
     "calculated_dti": number or null
@@ -239,8 +243,15 @@ Document text:
                 if income and debt and income > 0:
                     dti = debt / income
 
+                loan_amount = validated.get("loan_amount")
+                property_value = validated.get("property_value")
+                ltv = None
+                if loan_amount and property_value and property_value > 0:
+                    ltv = round(loan_amount / property_value, 4)
+
                 validated["derived_fields"] = {
-                    "dti": dti if dti is not None else validated.get("calculated_dti")
+                    "dti": dti if dti is not None else validated.get("calculated_dti"),
+                    "ltv": ltv,
                 }
 
                 log.info("extraction successful")

@@ -27,7 +27,7 @@ func main() {
 		port = "8080"
 	}
 
-	dbURL := os.Getenv("DATABASE_URL")
+	dbURL := os.Getenv("SYNC_DATABASE_URL")
 	if dbURL == "" {
 		dbURL = "postgres://findociq:findociq@db:5432/findociq"
 	}

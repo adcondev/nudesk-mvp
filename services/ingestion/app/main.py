@@ -17,7 +17,7 @@ logger = structlog.get_logger()
 app = FastAPI(title="FinDocIQ Ingestion Service")
 
 # Database setup — sync engine is fine; process_document runs in asyncio.to_thread
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://findociq:findociq@db:5432/findociq")
+DATABASE_URL = os.getenv("SYNC_DATABASE_URL", "postgresql://findociq:findociq@db:5432/findociq")
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 

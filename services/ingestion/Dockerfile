@@ -1,9 +1,26 @@
-FROM python:3.12-slim
+FROM python:3.11-slim
+
 WORKDIR /app
-# Dependencies for PaddleOCR future integration
-RUN apt-get update && apt-get install -y poppler-utils libgl1 libglib2.0-0 libgomp1 && rm -rf /var/lib/apt/lists/*
+
+# Install system dependencies for PaddleOCR, pdf2image, and OpenCV
+RUN apt-get update && apt-get install -y \
+    poppler-utils \
+    libgl1 \
+    libglib2.0-0 \
+    libgomp1 \
+    libsm6 \
+    libxext6 \
+    libxrender-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements and install with explicit NumPy constraint
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy application code
 COPY ./app ./app
+
 EXPOSE 8001
+
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8001"]

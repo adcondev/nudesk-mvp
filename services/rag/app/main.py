@@ -66,12 +66,12 @@ async def query_rag(request: QueryRequest):
             # returning distance as well
             result = await session.execute(
                 text(
-                    "SELECT id, document_id, chunk_index, content, embedding <=> :query_embedding::vector AS distance "
+                    "SELECT id, document_id, chunk_index, content, embedding <=> CAST(:query_embedding AS vector) AS distance "
                     "FROM chunks "
-                    "ORDER BY embedding <=> :query_embedding::vector "
+                    "ORDER BY embedding <=> CAST(:query_embedding AS vector) "
                     "LIMIT 5"
                 ),
-                {"query_embedding": str(query_embedding)}
+                {"query_embedding": "[" + ",".join(map(str, query_embedding)) + "]"}
             )
             rows = result.fetchall()
             for row in rows:

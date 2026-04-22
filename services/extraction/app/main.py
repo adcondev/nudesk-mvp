@@ -33,6 +33,10 @@ app = FastAPI(title="FinDocIQ Extraction Service")
 class BankStatementExtraction(BaseModel):
     account_number: Optional[str] = Field(None, description="Account number from the statement.")
     account_holder_name: Optional[str] = Field(None, description="Name on the account.")
+    statement_date: Optional[str] = Field(None, description="Statement period date.")
+    total_deposits: Optional[float] = Field(None, description="Sum of all deposits.")
+    total_withdrawals: Optional[float] = Field(None, description="Sum of all withdrawals.")
+    ending_balance: Optional[float] = Field(None, description="Closing balance.")
 
 class LoanApplicationExtraction(BaseModel):
     applicant_name: Optional[str] = Field(None, description="Name of the applicant.")
@@ -105,13 +109,13 @@ async def _embed_and_index_chunks(document_id: str, raw_text: str, log):
                 await session.execute(
                     text(
                         "INSERT INTO chunks (document_id, chunk_index, content, embedding) "
-                        "VALUES (:document_id, :chunk_index, :content, :embedding::vector)"
+                        "VALUES (:document_id, :chunk_index, :content, CAST(:embedding AS vector))"
                     ),
                     {
                         "document_id": document_id,
                         "chunk_index": i,
                         "content": content,
-                        "embedding": str(embedding)
+                        "embedding": "[" + ",".join(map(str, embedding)) + "]"
                     }
                 )
             await session.commit()

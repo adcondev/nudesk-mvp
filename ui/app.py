@@ -21,7 +21,7 @@ if uploaded_file is not None:
         with st.spinner("Uploading and processing..."):
             try:
                 files = {"file": (uploaded_file.name, uploaded_file.getvalue(), "application/pdf")}
-                response = httpx.post(f"{API_URL}/ingest", files=files, headers=HEADERS, timeout=60.0)
+                response = httpx.post(f"{API_URL}/documents", files=files, headers=HEADERS, timeout=60.0)
             except (httpx.ConnectError, httpx.TimeoutException):
                 st.error("Cannot reach the API. Is the stack running? (`docker-compose up`)")
                 st.stop()
@@ -174,7 +174,7 @@ if st.button("Ask"):
             if response.status_code == 200:
                 data = response.json().get("data", {})
                 st.markdown("### Answer")
-                st.info(data.get("answer"))
+                st.markdown(data.get("answer"))
 
                 with st.expander("View Sources"):
                     for i, source in enumerate(data.get("sources", [])):

@@ -11,7 +11,7 @@ services:
     ports:
       - "5432:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U findociq"]
+      test: [ "CMD-SHELL", "pg_isready -U findociq" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -34,10 +34,11 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "wget --spider -q http://localhost:8080/healthz || exit 1"]
+      test: [ "CMD-SHELL", "wget --spider -q http://localhost:8080/healthz || exit 1" ]
       interval: 10s
       timeout: 5s
-      retries: 3
+      retries: 10
+      start_period: 60s
 
   ingestion:
     build: ./services/ingestion
@@ -50,7 +51,7 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8001/healthz').raise_for_status()"]
+      test: [ "CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8001/healthz').raise_for_status()" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -64,7 +65,7 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8002/healthz').raise_for_status()"]
+      test: [ "CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8002/healthz').raise_for_status()" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -78,7 +79,7 @@ services:
       db:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8003/healthz').raise_for_status()"]
+      test: [ "CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8003/healthz').raise_for_status()" ]
       interval: 10s
       timeout: 5s
       retries: 3

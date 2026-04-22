@@ -1,0 +1,62 @@
+version: "3"
+
+tasks:
+  up:
+    desc: Start all services in detached mode
+    cmds:
+      - docker compose up -d
+
+  down:
+    desc: Stop all services
+    cmds:
+      - docker compose down
+
+  build:
+    desc: Build all Docker images
+    cmds:
+      - docker compose up --build
+
+  logs:
+    desc: Follow logs from all services
+    cmds:
+      - docker compose logs -f
+
+  clean:
+    desc: Stop services, remove volumes, and clean uploaded files
+    cmds:
+      - docker compose down
+      - docker compose down -v
+      - rm -rf data/uploads/*
+
+  test:
+    desc: Run all tests (Go + Python)
+    deps:
+      - test-go
+      - test-py
+
+  test-go:
+    desc: Run Go tests in the gateway
+    dir: gateway
+    cmds:
+      - go test ./...
+
+  test-py:
+    desc: Run Python unit tests
+    cmds:
+      - pytest services/ tests/ -v
+
+  test-e2e:
+    desc: Run end-to-end integration tests
+    cmds:
+      - pytest tests/integration/ -v
+
+  migrate:
+    desc: Run Alembic migrations inside the extraction container
+    cmds:
+      - docker compose exec extraction alembic upgrade head
+
+  lint:
+    desc: Lint Go and Python code
+    cmds:
+      - cmd: cd gateway && go vet ./...
+      - cmd: ruff check services/

@@ -119,20 +119,24 @@ async def _embed_and_index_chunks(document_id: str, raw_text: str, log):
     # Insert chunks to database
     try:
         async with AsyncSessionLocal() as session:
+            chunk_params = []
             for i, data in enumerate(response.data):
                 embedding = data.embedding
                 content = paragraphs[i]
+                chunk_params.append({
+                    "document_id": document_id,
+                    "chunk_index": i,
+                    "content": content,
+                    "embedding": "[" + ",".join(map(str, embedding)) + "]"
+                })
+
+            if chunk_params:
                 await session.execute(
                     text(
                         "INSERT INTO chunks (document_id, chunk_index, content, embedding) "
                         "VALUES (:document_id, :chunk_index, :content, CAST(:embedding AS vector))"
                     ),
-                    {
-                        "document_id": document_id,
-                        "chunk_index": i,
-                        "content": content,
-                        "embedding": "[" + ",".join(map(str, embedding)) + "]"
-                    }
+                    chunk_params
                 )
             await session.commit()
             log.info("indexed chunks successfully", chunk_count=len(paragraphs))

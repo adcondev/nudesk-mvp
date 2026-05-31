@@ -31,6 +31,8 @@ func TestAPIKeyAuth(t *testing.T) {
 		expectedStatus int
 		expectedBody   string
 		validateErr    bool
+		errCode        string
+		errMsg         string
 	}{
 		{
 			name:           "healthz endpoint is exempt",
@@ -42,13 +44,15 @@ func TestAPIKeyAuth(t *testing.T) {
 			validateErr:    false,
 		},
 		{
-			name:           "empty API_KEY environment variable allows request",
+			name:           "empty API_KEY environment variable returns 500",
 			path:           "/api/v1/test",
 			apiKeyEnv:      "",
 			authHeader:     "Bearer whatever",
-			expectedStatus: http.StatusOK,
-			expectedBody:   "success",
-			validateErr:    false,
+			expectedStatus: http.StatusInternalServerError,
+			expectedBody:   "",
+			validateErr:    true,
+			errCode:        "internal_error",
+			errMsg:         "server misconfiguration: API_KEY not set",
 		},
 		{
 			name:           "missing Authorization header",
@@ -57,6 +61,8 @@ func TestAPIKeyAuth(t *testing.T) {
 			authHeader:     "",
 			expectedStatus: http.StatusUnauthorized,
 			validateErr:    true,
+			errCode:        "unauthorized",
+			errMsg:         "missing or invalid API key",
 		},
 		{
 			name:           "invalid Authorization header format (not Bearer)",
@@ -65,6 +71,8 @@ func TestAPIKeyAuth(t *testing.T) {
 			authHeader:     "Basic dXNlcjpwYXNz",
 			expectedStatus: http.StatusUnauthorized,
 			validateErr:    true,
+			errCode:        "unauthorized",
+			errMsg:         "missing or invalid API key",
 		},
 		{
 			name:           "incorrect API key",
@@ -73,6 +81,8 @@ func TestAPIKeyAuth(t *testing.T) {
 			authHeader:     "Bearer wrong_secret",
 			expectedStatus: http.StatusUnauthorized,
 			validateErr:    true,
+			errCode:        "unauthorized",
+			errMsg:         "missing or invalid API key",
 		},
 		{
 			name:           "correct API key",
@@ -119,30 +129,8 @@ func TestAPIKeyAuth(t *testing.T) {
 				err := json.Unmarshal(rr.Body.Bytes(), &env)
 				require.NoError(t, err, "Response should be a valid JSON envelope")
 				require.NotNil(t, env.Error, "Error should not be nil in the envelope")
-				assert.Equal(t, "unauthorized", env.Error.Code)
-				assert.Equal(t, "missing or invalid API key", env.Error.Message)
-				if err := json.Unmarshal(rr.Body.Bytes(), &env); err != nil {
-					t.Fatalf("failed to unmarshal response body: %v", err)
-				}
-				if env.Error == nil {
-					t.Error("expected error object in response envelope, got nil")
-				} else {
-					if tc.expectedStatus == http.StatusUnauthorized {
-						if env.Error.Code != "unauthorized" {
-							t.Errorf("expected error code 'unauthorized', got %q", env.Error.Code)
-						}
-						if env.Error.Message != "missing or invalid API key" {
-							t.Errorf("expected error message 'missing or invalid API key', got %q", env.Error.Message)
-						}
-					} else if tc.expectedStatus == http.StatusInternalServerError {
-						if env.Error.Code != "internal_error" {
-							t.Errorf("expected error code 'internal_error', got %q", env.Error.Code)
-						}
-						if env.Error.Message != "server misconfiguration: API_KEY not set" {
-							t.Errorf("expected error message 'server misconfiguration: API_KEY not set', got %q", env.Error.Message)
-						}
-					}
-				}
+				assert.Equal(t, tt.errCode, env.Error.Code)
+				assert.Equal(t, tt.errMsg, env.Error.Message)
 			}
 		})
 	}

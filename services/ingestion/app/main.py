@@ -124,7 +124,6 @@ def _save_file_and_db(
         )
         db.commit()
 
-
 @app.post("/ingest")
 async def ingest_document(
     background_tasks: BackgroundTasks, file: UploadFile = File(...)

@@ -27,7 +27,7 @@ func main() {
 		port = "8080"
 	}
 
-	dbURL := os.Getenv("DATABASE_URL")
+	dbURL := os.Getenv("SYNC_DATABASE_URL")
 	if dbURL == "" {
 		dbURL = "postgres://findociq:findociq@db:5432/findociq"
 	}
@@ -41,6 +41,21 @@ func main() {
 		log.Fatal().Err(err).Msg("Invalid INGESTION_URL")
 	}
 	ingestionProxy := httputil.NewSingleHostReverseProxy(parsedIngestionURL)
+
+	ragURL := os.Getenv("RAG_URL")
+	if ragURL == "" {
+		ragURL = "http://rag:8003"
+	}
+	parsedRagURL, err := url.Parse(ragURL)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Invalid RAG_URL")
+	}
+	ragProxy := httputil.NewSingleHostReverseProxy(parsedRagURL)
+
+	extractionURL := os.Getenv("EXTRACTION_URL")
+	if extractionURL == "" {
+		extractionURL = "http://extraction:8002"
+	}
 
 	pool, err := pgxpool.New(context.Background(), dbURL)
 	if err != nil {
@@ -60,10 +75,17 @@ func main() {
 	}))
 	r.Use(apimw.APIKeyAuth)
 
-	r.Get("/healthz", handler.HealthCheck)
+	r.Get("/healthz", handler.HealthCheck(pool, ingestionURL, ragURL, extractionURL))
+	r.Get("/documents", handler.ListDocuments(pool))
 	r.Get("/documents/{id}", handler.GetDocument(pool))
-	r.Post("/ingest", func(w http.ResponseWriter, r *http.Request) {
+	r.Post("/documents", func(w http.ResponseWriter, r *http.Request) {
+		// Change the path to match the backend expectation if needed
+		// The ingestion service expects POST /ingest
+		r.URL.Path = "/ingest"
 		ingestionProxy.ServeHTTP(w, r)
+	})
+	r.Post("/query", func(w http.ResponseWriter, r *http.Request) {
+		ragProxy.ServeHTTP(w, r)
 	})
 
 	log.Info().Msgf("Gateway starting on port %s", port)

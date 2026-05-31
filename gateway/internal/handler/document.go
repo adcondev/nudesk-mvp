@@ -3,11 +3,13 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"time"
 
 	"github.com/findociq/gateway/internal/types"
 	"github.com/go-chi/chi/v5"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog/log"
 )
@@ -49,8 +51,12 @@ func GetDocument(pool *pgxpool.Pool) http.HandlerFunc {
 			&resp.ID, &resp.Filename, &resp.Status, &docType, &pageCount, &resp.UploadedAt, &extractedData,
 		)
 		if err != nil {
-			log.Error().Err(err).Str("id", id).Msg("failed to query document")
-			types.WriteError(w, http.StatusNotFound, "not_found", "document not found")
+			if errors.Is(err, pgx.ErrNoRows) {
+				types.WriteError(w, http.StatusNotFound, "not_found", "document not found")
+			} else {
+				log.Error().Err(err).Str("id", id).Msg("failed to query document")
+				types.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to retrieve document")
+			}
 			return
 		}
 
@@ -65,5 +71,62 @@ func GetDocument(pool *pgxpool.Pool) http.HandlerFunc {
 		}
 
 		types.WriteJSON(w, r, http.StatusOK, resp)
+	}
+}
+
+func ListDocuments(pool *pgxpool.Pool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := r.Context()
+
+		query := `
+			SELECT
+				d.id, d.filename, d.status, d.document_type, d.page_count, d.uploaded_at
+			FROM documents d
+			ORDER BY d.uploaded_at DESC
+			LIMIT 50
+		`
+
+		rows, err := pool.Query(ctx, query)
+		if err != nil {
+			log.Error().Err(err).Msg("failed to query documents")
+			types.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to list documents")
+			return
+		}
+		defer rows.Close()
+
+		var documents []DocumentResponse
+		for rows.Next() {
+			var resp DocumentResponse
+			var docType *string
+			var pageCount *int
+
+			err := rows.Scan(
+				&resp.ID, &resp.Filename, &resp.Status, &docType, &pageCount, &resp.UploadedAt,
+			)
+			if err != nil {
+				log.Error().Err(err).Msg("failed to scan document row")
+				continue
+			}
+
+			if docType != nil {
+				resp.DocumentType = *docType
+			}
+			if pageCount != nil {
+				resp.PageCount = *pageCount
+			}
+			documents = append(documents, resp)
+		}
+
+		if err := rows.Err(); err != nil {
+			log.Error().Err(err).Msg("rows error when listing documents")
+			types.WriteError(w, http.StatusInternalServerError, "internal_error", "failed to list documents")
+			return
+		}
+
+		if documents == nil {
+			documents = []DocumentResponse{}
+		}
+
+		types.WriteJSON(w, r, http.StatusOK, documents)
 	}
 }

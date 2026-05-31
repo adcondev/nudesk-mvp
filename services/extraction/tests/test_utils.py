@@ -1,21 +1,5 @@
-import sys
 from datetime import datetime
-from unittest.mock import MagicMock
-
-# Mock missing dependencies to allow importing from main
-sys.modules['structlog'] = MagicMock()
-sys.modules['anthropic'] = MagicMock()
-sys.modules['openai'] = MagicMock()
-sys.modules['sqlalchemy'] = MagicMock()
-sys.modules['sqlalchemy.ext.asyncio'] = MagicMock()
-sys.modules['sqlalchemy.orm'] = MagicMock()
-sys.modules['pgvector.sqlalchemy'] = MagicMock()
-sys.modules['fastapi'] = MagicMock()
-sys.modules['pydantic'] = MagicMock()
-sys.modules['dotenv'] = MagicMock()
-
-# noqa: E402
-from services.extraction.app.main import _envelope  # noqa: E402
+from services.extraction.app.utils import _envelope
 
 def test_envelope_defaults():
     """Test _envelope with default arguments."""

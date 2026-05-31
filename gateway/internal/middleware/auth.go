@@ -20,8 +20,8 @@ func APIKeyAuth(next http.Handler) http.Handler {
 
 		apiKey := os.Getenv("API_KEY")
 		if apiKey == "" {
-			log.Warn().Msg("API_KEY not set — auth disabled")
-			next.ServeHTTP(w, r)
+			log.Error().Msg("API_KEY not set — denying request")
+			types.WriteError(w, http.StatusInternalServerError, "internal_error", "server misconfiguration: API_KEY not set")
 			return
 		}
 

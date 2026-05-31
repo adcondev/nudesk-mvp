@@ -1,6 +1,7 @@
-from services.extraction.app.utils import _envelope, _parse_claude_json
 import json
 import os
+import re
+from datetime import datetime, timezone
 from typing import Optional
 
 import structlog
@@ -97,15 +98,13 @@ class ExtractRequest(BaseModel):
     document_id: str
 
 
-def _envelope(data=None, error=None, request_id: str = "") -> dict:
-    return {
-        "data": data,
-        "error": error,
-        "meta": {
-            "request_id": request_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        },
-    }
+def _parse_claude_json(text: str) -> dict:
+    """Extract JSON from Claude response, stripping markdown fences if present."""
+    raw = text.strip()
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
+    return json.loads(raw)
+
 
 async def _extract_with_claude(prompt: str, log) -> dict:
     """Helper to call Claude API and parse the resulting JSON."""
@@ -122,6 +121,17 @@ async def _extract_with_claude(prompt: str, log) -> dict:
         raise ValueError("empty response from Claude API")
 
     return _parse_claude_json(response.content[0].text)
+
+
+def _envelope(data=None, error=None, request_id: str = "") -> dict:
+    return {
+        "data": data,
+        "error": error,
+        "meta": {
+            "request_id": request_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+    }
 
 
 async def _embed_and_index_chunks(document_id: str, raw_text: str, log):

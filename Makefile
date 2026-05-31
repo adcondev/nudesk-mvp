@@ -22,10 +22,10 @@ test-go:
 	cd gateway && go test ./...
 
 test-py:
-	/home/jules/.pyenv/versions/3.12.13/bin/pytest services/ tests/ -v
+	pytest services/ tests/ -v
 
 test-e2e:
-	/home/jules/.pyenv/versions/3.12.13/bin/pytest tests/integration/ -v
+	pytest tests/integration/ -v
 
 migrate:
 	docker compose exec extraction alembic upgrade head

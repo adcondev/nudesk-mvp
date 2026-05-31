@@ -13,7 +13,6 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
-from pgvector.sqlalchemy import Vector
 
 load_dotenv()
 logger = structlog.get_logger()

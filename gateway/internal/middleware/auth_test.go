@@ -1,4 +1,4 @@
-package middleware
+package middleware_test
 
 import (
 	"encoding/json"
@@ -7,18 +7,21 @@ import (
 	"os"
 	"testing"
 
+	"github.com/findociq/gateway/internal/middleware"
 	"github.com/findociq/gateway/internal/types"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestAPIKeyAuth(t *testing.T) {
-	// Create a dummy handler to act as the "next" handler in the chain.
+	// Setup a dummy handler
 	dummyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		w.Write([]byte("success"))
 	})
 
-	// Wrap it with our middleware.
-	handler := APIKeyAuth(dummyHandler)
+	// Setup middleware
+	handler := middleware.APIKeyAuth(dummyHandler)
 
 	tests := []struct {
 		name           string
@@ -26,104 +29,98 @@ func TestAPIKeyAuth(t *testing.T) {
 		apiKeyEnv      string
 		authHeader     string
 		expectedStatus int
-		expectedBody   string // or expected substring
+		expectedBody   string
+		validateErr    bool
 	}{
 		{
-			name:           "Healthz endpoint is exempt",
+			name:           "healthz endpoint is exempt",
 			path:           "/healthz",
 			apiKeyEnv:      "secret123",
-			authHeader:     "", // no header
+			authHeader:     "", // No header provided
 			expectedStatus: http.StatusOK,
-			expectedBody:   "OK",
+			expectedBody:   "success",
+			validateErr:    false,
 		},
 		{
-			name:           "Empty API_KEY env var allows request",
-			path:           "/some/path",
+			name:           "empty API_KEY environment variable allows request",
+			path:           "/api/v1/test",
 			apiKeyEnv:      "",
 			authHeader:     "Bearer whatever",
 			expectedStatus: http.StatusOK,
-			expectedBody:   "OK",
+			expectedBody:   "success",
+			validateErr:    false,
 		},
 		{
-			name:           "Missing Authorization header returns 401",
-			path:           "/some/path",
+			name:           "missing Authorization header",
+			path:           "/api/v1/test",
 			apiKeyEnv:      "secret123",
 			authHeader:     "",
 			expectedStatus: http.StatusUnauthorized,
+			validateErr:    true,
 		},
 		{
-			name:           "Invalid Authorization header format returns 401",
-			path:           "/some/path",
+			name:           "invalid Authorization header format (not Bearer)",
+			path:           "/api/v1/test",
 			apiKeyEnv:      "secret123",
-			authHeader:     "Basic whatever",
+			authHeader:     "Basic dXNlcjpwYXNz",
 			expectedStatus: http.StatusUnauthorized,
+			validateErr:    true,
 		},
 		{
-			name:           "Incorrect API key returns 401",
-			path:           "/some/path",
+			name:           "incorrect API key",
+			path:           "/api/v1/test",
 			apiKeyEnv:      "secret123",
-			authHeader:     "Bearer wrongsecret",
+			authHeader:     "Bearer wrong_secret",
 			expectedStatus: http.StatusUnauthorized,
+			validateErr:    true,
 		},
 		{
-			name:           "Correct API key allows request",
-			path:           "/some/path",
+			name:           "correct API key",
+			path:           "/api/v1/test",
 			apiKeyEnv:      "secret123",
 			authHeader:     "Bearer secret123",
 			expectedStatus: http.StatusOK,
-			expectedBody:   "OK",
+			expectedBody:   "success",
+			validateErr:    false,
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			// Save the original API_KEY so we can restore it.
-			origAPIKey := os.Getenv("API_KEY")
-			defer os.Setenv("API_KEY", origAPIKey)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Manage environment variable
+			originalKey := os.Getenv("API_KEY")
+			defer os.Setenv("API_KEY", originalKey)
 
-			// Set the API_KEY environment variable.
-			if tc.apiKeyEnv != "" {
-				os.Setenv("API_KEY", tc.apiKeyEnv)
+			if tt.apiKeyEnv != "" {
+				os.Setenv("API_KEY", tt.apiKeyEnv)
 			} else {
 				os.Unsetenv("API_KEY")
 			}
 
-			// Create a request.
-			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
-			if tc.authHeader != "" {
-				req.Header.Set("Authorization", tc.authHeader)
+			// Prepare request
+			req := httptest.NewRequest(http.MethodGet, tt.path, nil)
+			if tt.authHeader != "" {
+				req.Header.Set("Authorization", tt.authHeader)
 			}
 
-			// Record the response.
+			// Record response
 			rr := httptest.NewRecorder()
 			handler.ServeHTTP(rr, req)
 
-			// Check the status code.
-			if rr.Code != tc.expectedStatus {
-				t.Errorf("expected status %d, got %d", tc.expectedStatus, rr.Code)
+			// Assertions
+			assert.Equal(t, tt.expectedStatus, rr.Code)
+
+			if tt.expectedStatus == http.StatusOK {
+				assert.Equal(t, tt.expectedBody, rr.Body.String())
 			}
 
-			// For OK responses, check that the dummy handler was called.
-			if tc.expectedStatus == http.StatusOK {
-				if rr.Body.String() != tc.expectedBody {
-					t.Errorf("expected body %q, got %q", tc.expectedBody, rr.Body.String())
-				}
-			} else {
-				// For unauthorized responses, verify it's the expected JSON format.
+			if tt.validateErr {
 				var env types.Envelope
-				if err := json.Unmarshal(rr.Body.Bytes(), &env); err != nil {
-					t.Fatalf("failed to unmarshal response body: %v", err)
-				}
-				if env.Error == nil {
-					t.Error("expected error object in response envelope, got nil")
-				} else {
-					if env.Error.Code != "unauthorized" {
-						t.Errorf("expected error code 'unauthorized', got %q", env.Error.Code)
-					}
-					if env.Error.Message != "missing or invalid API key" {
-						t.Errorf("expected error message 'missing or invalid API key', got %q", env.Error.Message)
-					}
-				}
+				err := json.Unmarshal(rr.Body.Bytes(), &env)
+				require.NoError(t, err, "Response should be a valid JSON envelope")
+				require.NotNil(t, env.Error, "Error should not be nil in the envelope")
+				assert.Equal(t, "unauthorized", env.Error.Code)
+				assert.Equal(t, "missing or invalid API key", env.Error.Message)
 			}
 		})
 	}

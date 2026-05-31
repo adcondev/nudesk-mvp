@@ -22,7 +22,7 @@ test-go:
 	cd gateway && go test ./...
 
 test-py:
-	PYTHONPATH=. pytest services/ tests/ -v
+	PYTHONPATH=. python -m pytest services/ tests/ -v
 
 test-e2e:
 	pytest tests/integration/ -v

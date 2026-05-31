@@ -10,6 +10,7 @@ def _envelope(data=None, error=None, request_id: str = "") -> dict:
     }
 
 def _parse_claude_json(raw: str) -> dict:
+    raw = raw.strip()
     if raw.startswith("```"):
         raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
     return json.loads(raw)

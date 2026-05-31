@@ -6,7 +6,11 @@ import time
 st.set_page_config(page_title="FinDocIQ Demo", page_icon="📄", layout="wide")
 
 API_URL = os.getenv("API_URL", "http://gateway:8080")
-API_KEY = os.getenv("API_KEY", "changeme")
+
+API_KEY = os.getenv("API_KEY")
+if not API_KEY:
+    raise ValueError("API_KEY environment variable is required and cannot be empty")
+
 
 HEADERS = {"Authorization": f"Bearer {API_KEY}"}
 

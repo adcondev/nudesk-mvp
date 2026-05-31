@@ -37,12 +37,11 @@ func TestAPIKeyAuth(t *testing.T) {
 			expectedBody:   "OK",
 		},
 		{
-			name:           "Empty API_KEY env var allows request",
+			name:           "Empty API_KEY env var denies request with internal error",
 			path:           "/some/path",
 			apiKeyEnv:      "",
 			authHeader:     "Bearer whatever",
-			expectedStatus: http.StatusOK,
-			expectedBody:   "OK",
+			expectedStatus: http.StatusInternalServerError,
 		},
 		{
 			name:           "Missing Authorization header returns 401",
@@ -117,11 +116,20 @@ func TestAPIKeyAuth(t *testing.T) {
 				if env.Error == nil {
 					t.Error("expected error object in response envelope, got nil")
 				} else {
-					if env.Error.Code != "unauthorized" {
-						t.Errorf("expected error code 'unauthorized', got %q", env.Error.Code)
-					}
-					if env.Error.Message != "missing or invalid API key" {
-						t.Errorf("expected error message 'missing or invalid API key', got %q", env.Error.Message)
+					if tc.expectedStatus == http.StatusUnauthorized {
+						if env.Error.Code != "unauthorized" {
+							t.Errorf("expected error code 'unauthorized', got %q", env.Error.Code)
+						}
+						if env.Error.Message != "missing or invalid API key" {
+							t.Errorf("expected error message 'missing or invalid API key', got %q", env.Error.Message)
+						}
+					} else if tc.expectedStatus == http.StatusInternalServerError {
+						if env.Error.Code != "internal_error" {
+							t.Errorf("expected error code 'internal_error', got %q", env.Error.Code)
+						}
+						if env.Error.Message != "server misconfiguration: API_KEY not set" {
+							t.Errorf("expected error message 'server misconfiguration: API_KEY not set', got %q", env.Error.Message)
+						}
 					}
 				}
 			}

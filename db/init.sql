@@ -9,6 +9,7 @@ CREATE TABLE documents (
     document_type document_type,
     status document_status DEFAULT 'pending',
     file_path TEXT,
+    raw_text TEXT,
     page_count INTEGER,
     uploaded_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP

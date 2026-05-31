@@ -65,6 +65,18 @@ All endpoints return this shape:
 }
 ```
  
+## Forbidden Actions (Security Guardrails)
+
+These rules are absolute and apply to every session, every task, and every tool call.
+
+1. **No `.env` access**: You are strictly prohibited from reading, modifying, executing `cat`, or printing the contents of the local `.env` file under any circumstances.
+
+2. **Reference only `.env.example`**: You must use `.env.example` as your sole source of truth for understanding environment variable structures and names.
+
+3. **No hardcoded secrets**: Never hardcode any API keys, tokens, or passwords (e.g., `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `DATABASE_URL`) into source code, tests, or scripts. Always use `os.getenv()` in Python or `os.Getenv()` in Go.
+
+4. **No infrastructure over-engineering**: Do not attempt to implement complex secret management tools (e.g., AWS Secrets Manager, HashiCorp Vault). Rely purely on `.env` file injection via Docker Compose as defined in the MVP architecture.
+
 ## Environment variables
  
 All set in `.env` at repo root (loaded by docker-compose). See `.env.example`.

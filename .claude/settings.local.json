@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node docs/generate-buss-details.js)",
+      "Bash(npm root:*)",
+      "Bash(NODE_PATH=\"C:/Users/adria/AppData/Roaming/npm/node_modules\" node docs/generate-buss-details.js)",
+      "Bash(gh pr create --title 'docs: add business details guide \\(MD + DOCX\\)' --body ' *)"
+    ]
+  }
+}

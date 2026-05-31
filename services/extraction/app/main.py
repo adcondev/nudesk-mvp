@@ -106,23 +106,6 @@ def _parse_claude_json(text: str) -> dict:
     return json.loads(raw)
 
 
-async def _extract_with_claude(prompt: str, log) -> dict:
-    """Helper to call Claude API and parse the resulting JSON."""
-    log.info("calling claude api", model=EXTRACTION_MODEL)
-    response = await anthropic_client.messages.create(
-        model=EXTRACTION_MODEL,
-        max_tokens=1000,
-        temperature=0,
-        system="You are an expert at extracting structured data from financial documents. Return only JSON.",
-        messages=[{"role": "user", "content": prompt}],
-    )
-
-    if not response.content:
-        raise ValueError("empty response from Claude API")
-
-    return _parse_claude_json(response.content[0].text)
-
-
 def _envelope(data=None, error=None, request_id: str = "") -> dict:
     return {
         "data": data,
@@ -155,20 +138,26 @@ async def _embed_and_index_chunks(document_id: str, raw_text: str, log):
     # Insert chunks to database
     try:
         async with AsyncSessionLocal() as session:
+            chunk_params = []
             for i, data in enumerate(response.data):
                 embedding = data.embedding
                 content = paragraphs[i]
-                await session.execute(
-                    text(
-                        "INSERT INTO chunks (document_id, chunk_index, content, embedding) "
-                        "VALUES (:document_id, :chunk_index, :content, CAST(:embedding AS vector))"
-                    ),
+                chunk_params.append(
                     {
                         "document_id": document_id,
                         "chunk_index": i,
                         "content": content,
                         "embedding": "[" + ",".join(map(str, embedding)) + "]",
-                    },
+                    }
+                )
+
+            if chunk_params:
+                await session.execute(
+                    text(
+                        "INSERT INTO chunks (document_id, chunk_index, content, embedding) "
+                        "VALUES (:document_id, :chunk_index, :content, CAST(:embedding AS vector))"
+                    ),
+                    chunk_params,
                 )
             await session.commit()
             log.info("indexed chunks successfully", chunk_count=len(paragraphs))
@@ -227,7 +216,8 @@ Document text:
 {raw_text}
 </document>"""
 
-                extracted_data = await _extract_with_claude(prompt, log)
+                response_text = await _call_anthropic_api(prompt, EXTRACTION_MODEL)
+                extracted_data = _parse_claude_json(response_text)
                 validated = BankStatementExtraction(**extracted_data).model_dump()
 
                 # Derived fields — only compute what the data actually supports.
@@ -284,7 +274,8 @@ Document text:
 {raw_text}
 </document>"""
 
-                extracted_data = await _extract_with_claude(prompt, log)
+                response_text = await _call_anthropic_api(prompt, EXTRACTION_MODEL)
+                extracted_data = _parse_claude_json(response_text)
                 validated = LoanApplicationExtraction(**extracted_data).model_dump()
 
                 # Derived fields
@@ -346,7 +337,8 @@ Document text:
 {raw_text}
 </document>"""
 
-                extracted_data = await _extract_with_claude(prompt, log)
+                response_text = await _call_anthropic_api(prompt, EXTRACTION_MODEL)
+                extracted_data = _parse_claude_json(response_text)
                 validated = PayStubExtraction(**extracted_data).model_dump()
 
                 # Derived fields

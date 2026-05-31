@@ -108,6 +108,23 @@ def _envelope(data=None, error=None, request_id: str = "") -> dict:
     }
 
 
+def _save_file_and_db(
+    doc_id: str, filename: str, file_path: str, upload_dir: str, file_obj
+) -> None:
+    os.makedirs(upload_dir, exist_ok=True)
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file_obj, buffer)
+
+    with SessionLocal() as db:
+        db.execute(
+            text(
+                "INSERT INTO documents (id, filename, status, file_path) VALUES (:id, :filename, 'pending', :file_path)"
+            ),
+            {"id": doc_id, "filename": filename, "file_path": file_path},
+        )
+        db.commit()
+
+
 @app.post("/ingest")
 async def ingest_document(
     background_tasks: BackgroundTasks, file: UploadFile = File(...)
@@ -116,20 +133,12 @@ async def ingest_document(
         raise HTTPException(status_code=400, detail="Only PDF files are supported")
 
     doc_id = str(uuid.uuid4())
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
     file_path = os.path.join(UPLOAD_DIR, f"{doc_id}.pdf")
 
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    with SessionLocal() as db:
-        db.execute(
-            text(
-                "INSERT INTO documents (id, filename, status, file_path) VALUES (:id, :filename, 'pending', :file_path)"
-            ),
-            {"id": doc_id, "filename": file.filename, "file_path": file_path},
-        )
-        db.commit()
+    # Run blocking file operations and DB insertion in a thread
+    await asyncio.to_thread(
+        _save_file_and_db, doc_id, file.filename, file_path, UPLOAD_DIR, file.file
+    )
 
     background_tasks.add_task(process_document, doc_id, file_path)
 

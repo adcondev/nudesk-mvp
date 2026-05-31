@@ -1,1 +1,6 @@
 .env
+app_logs.txt
+benchmark_ingest.py
+start_app.py
+test.pdf
+__pycache__/

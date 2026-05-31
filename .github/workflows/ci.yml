@@ -9,6 +9,7 @@ on:
 jobs:
   lint-and-test:
     runs-on: ubuntu-latest
+    environment: dev
 
     steps:
     - uses: actions/checkout@v4
@@ -52,4 +53,10 @@ jobs:
       run: go test ./...
 
     - name: Test Python
+      env:
+        ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        API_KEY: ${{ vars.API_KEY }}
+        DATABASE_URL: ${{ vars.DATABASE_URL }}
+        SYNC_DATABASE_URL: ${{ vars.SYNC_DATABASE_URL }}
       run: PYTHONPATH=. pytest services/ tests/ -v

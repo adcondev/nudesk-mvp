@@ -21,15 +21,9 @@ DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://findociq:findociq
 engine = create_async_engine(DATABASE_URL)
 AsyncSessionLocal = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
-_anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
-if not _anthropic_api_key:
-    raise ValueError("ANTHROPIC_API_KEY is required")
-anthropic_client = AsyncAnthropic(api_key=_anthropic_api_key)
+anthropic_client = AsyncAnthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
 EXTRACTION_MODEL = os.getenv("EXTRACTION_MODEL", "claude-opus-4-6")
-_openai_api_key = os.getenv("OPENAI_API_KEY")
-if not _openai_api_key:
-    raise ValueError("OPENAI_API_KEY is required")
-openai_client = AsyncOpenAI(api_key=_openai_api_key)
+openai_client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
 
 app = FastAPI(title="FinDocIQ Extraction Service")

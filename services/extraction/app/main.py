@@ -13,7 +13,6 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
-from pgvector.sqlalchemy import Vector
 
 load_dotenv()
 logger = structlog.get_logger()
@@ -71,6 +70,23 @@ def _parse_claude_json(text: str) -> dict:
     if raw.startswith("```"):
         raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.MULTILINE).strip()
     return json.loads(raw)
+
+
+async def _extract_with_claude(prompt: str, log) -> dict:
+    """Helper to call Claude API and parse the resulting JSON."""
+    log.info("calling claude api", model=EXTRACTION_MODEL)
+    response = await anthropic_client.messages.create(
+        model=EXTRACTION_MODEL,
+        max_tokens=1000,
+        temperature=0,
+        system="You are an expert at extracting structured data from financial documents. Return only JSON.",
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    if not response.content:
+        raise ValueError("empty response from Claude API")
+
+    return _parse_claude_json(response.content[0].text)
 
 
 def _envelope(data=None, error=None, request_id: str = "") -> dict:
@@ -157,19 +173,7 @@ Document text:
 {raw_text}
 </document>"""
 
-                log.info("calling claude api", model=EXTRACTION_MODEL)
-                response = await anthropic_client.messages.create(
-                    model=EXTRACTION_MODEL,
-                    max_tokens=1000,
-                    temperature=0,
-                    system="You are an expert at extracting structured data from financial documents. Return only JSON.",
-                    messages=[{"role": "user", "content": prompt}],
-                )
-
-                if not response.content:
-                    raise ValueError("empty response from Claude API")
-
-                extracted_data = _parse_claude_json(response.content[0].text)
+                extracted_data = await _extract_with_claude(prompt, log)
                 validated = BankStatementExtraction(**extracted_data).model_dump()
 
                 # Derived fields — only compute what the data actually supports.
@@ -226,19 +230,7 @@ Document text:
 {raw_text}
 </document>"""
 
-                log.info("calling claude api for loan app", model=EXTRACTION_MODEL)
-                response = await anthropic_client.messages.create(
-                    model=EXTRACTION_MODEL,
-                    max_tokens=1000,
-                    temperature=0,
-                    system="You are an expert at extracting structured data from financial documents. Return only JSON.",
-                    messages=[{"role": "user", "content": prompt}],
-                )
-
-                if not response.content:
-                    raise ValueError("empty response from Claude API")
-
-                extracted_data = _parse_claude_json(response.content[0].text)
+                extracted_data = await _extract_with_claude(prompt, log)
                 validated = LoanApplicationExtraction(**extracted_data).model_dump()
 
                 # Derived fields
@@ -300,19 +292,7 @@ Document text:
 {raw_text}
 </document>"""
 
-                log.info("calling claude api for pay stub", model=EXTRACTION_MODEL)
-                response = await anthropic_client.messages.create(
-                    model=EXTRACTION_MODEL,
-                    max_tokens=1000,
-                    temperature=0,
-                    system="You are an expert at extracting structured data from financial documents. Return only JSON.",
-                    messages=[{"role": "user", "content": prompt}],
-                )
-
-                if not response.content:
-                    raise ValueError("empty response from Claude API")
-
-                extracted_data = _parse_claude_json(response.content[0].text)
+                extracted_data = await _extract_with_claude(prompt, log)
                 validated = PayStubExtraction(**extracted_data).model_dump()
 
                 # Derived fields

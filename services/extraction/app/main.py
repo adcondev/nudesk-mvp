@@ -185,21 +185,6 @@ async def _embed_and_index_chunks(document_id: str, raw_text: str, log):
         )
 
 
-async def _call_anthropic_api(prompt: str, model: str) -> str:
-    response = await anthropic_client.messages.create(
-        model=model,
-        max_tokens=1000,
-        temperature=0,
-        system="You are an expert at extracting structured data from financial documents. Return only JSON.",
-        messages=[{"role": "user", "content": prompt}],
-    )
-
-    if not response.content:
-        raise ValueError("empty response from Claude API")
-
-    return response.content[0].text
-
-
 async def process_extraction(document_id: str) -> None:
     log = logger.bind(document_id=document_id)
     log.info("starting extraction")
@@ -215,6 +200,8 @@ async def process_extraction(document_id: str) -> None:
                 return
 
             raw_text, doc_type = row
+
+            validated = None
 
             if doc_type == "bank_statement":
                 prompt = f"""Extract the requested fields from the following bank statement text.
@@ -233,8 +220,7 @@ Document text:
 {raw_text}
 </document>"""
 
-                response_text = await _call_anthropic_api(prompt, EXTRACTION_MODEL)
-                extracted_data = _parse_claude_json(response_text)
+                extracted_data = await _extract_with_claude(prompt, log)
                 validated = BankStatementExtraction(**extracted_data).model_dump()
 
                 # Derived fields — only compute what the data actually supports.
@@ -247,28 +233,6 @@ Document text:
                     "total_deposits_snapshot": deposits,
                     "dti": None,  # requires verified debt payments — not available from statement alone
                 }
-
-                log.info("extraction successful")
-
-                # trigger chunking and embedding after extraction
-                await _embed_and_index_chunks(document_id, raw_text, log)
-
-                await session.execute(
-                    text(
-                        "INSERT INTO extractions (document_id, extracted_data, model_version) "
-                        "VALUES (:document_id, :extracted_data, :model_version)"
-                    ),
-                    {
-                        "document_id": document_id,
-                        "extracted_data": json.dumps(validated),
-                        "model_version": EXTRACTION_MODEL,
-                    },
-                )
-                await session.execute(
-                    text("UPDATE documents SET status = 'completed' WHERE id = :id"),
-                    {"id": document_id},
-                )
-                await session.commit()
 
             elif doc_type == "loan_application":
                 prompt = f"""Extract the requested fields from the following loan application text.
@@ -291,8 +255,7 @@ Document text:
 {raw_text}
 </document>"""
 
-                response_text = await _call_anthropic_api(prompt, EXTRACTION_MODEL)
-                extracted_data = _parse_claude_json(response_text)
+                extracted_data = await _extract_with_claude(prompt, log)
                 validated = LoanApplicationExtraction(**extracted_data).model_dump()
 
                 # Derived fields
@@ -313,28 +276,6 @@ Document text:
                     "ltv": ltv,
                 }
 
-                log.info("extraction successful")
-
-                # trigger chunking and embedding after extraction
-                await _embed_and_index_chunks(document_id, raw_text, log)
-
-                await session.execute(
-                    text(
-                        "INSERT INTO extractions (document_id, extracted_data, model_version) "
-                        "VALUES (:document_id, :extracted_data, :model_version)"
-                    ),
-                    {
-                        "document_id": document_id,
-                        "extracted_data": json.dumps(validated),
-                        "model_version": EXTRACTION_MODEL,
-                    },
-                )
-                await session.execute(
-                    text("UPDATE documents SET status = 'completed' WHERE id = :id"),
-                    {"id": document_id},
-                )
-                await session.commit()
-
             elif doc_type == "pay_stub":
                 prompt = f"""Extract the requested fields from the following pay stub text.
 Return ONLY a JSON object matching this schema — no explanation, no markdown:
@@ -354,8 +295,7 @@ Document text:
 {raw_text}
 </document>"""
 
-                response_text = await _call_anthropic_api(prompt, EXTRACTION_MODEL)
-                extracted_data = _parse_claude_json(response_text)
+                extracted_data = await _extract_with_claude(prompt, log)
                 validated = PayStubExtraction(**extracted_data).model_dump()
 
                 # Derived fields
@@ -377,6 +317,12 @@ Document text:
                     "monthly_income_proxy": monthly_income_proxy,
                 }
 
+            else:
+                log.warning(
+                    "unsupported document type — skipping extraction", doc_type=doc_type
+                )
+
+            if validated is not None:
                 log.info("extraction successful")
 
                 # trigger chunking and embedding after extraction
@@ -393,21 +339,12 @@ Document text:
                         "model_version": EXTRACTION_MODEL,
                     },
                 )
-                await session.execute(
-                    text("UPDATE documents SET status = 'completed' WHERE id = :id"),
-                    {"id": document_id},
-                )
-                await session.commit()
 
-            else:
-                log.warning(
-                    "unsupported document type — skipping extraction", doc_type=doc_type
-                )
-                await session.execute(
-                    text("UPDATE documents SET status = 'completed' WHERE id = :id"),
-                    {"id": document_id},
-                )
-                await session.commit()
+            await session.execute(
+                text("UPDATE documents SET status = 'completed' WHERE id = :id"),
+                {"id": document_id},
+            )
+            await session.commit()
 
     except Exception as e:
         log.error("extraction failed", error=str(e))
